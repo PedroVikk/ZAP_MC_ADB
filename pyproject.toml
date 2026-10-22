@@ -1,0 +1,27 @@
+[project]
+name = "zap-mcp"
+version = "0.1.0"
+description = "Servidor MCP para operar o OWASP ZAP (ZAP by Checkmarx) em testes de seguranca autorizados."
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+    "zaproxy>=0.3.2",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+zap-mcp = "zap_mcp.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zap_mcp"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,23 @@
+# ZAP (ZAP by Checkmarx) em modo daemon.
+#
+# Bind em 0.0.0.0 ja deixa o proxy alcancavel pelo aparelho Android na Fase 2
+# (ADB). A protecao real continua sendo a api.key + a lista de alvos do MCP;
+# se for rodar so o ZAP MVP numa maquina compartilhada, troque para 127.0.0.1.
+services:
+  zap:
+    image: zaproxy/zap-stable:latest
+    container_name: zap
+    command: >
+      zap.sh -daemon
+      -host 0.0.0.0 -port 8080
+      -config api.key=${ZAP_API_KEY}
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "zap-cli", "status"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
