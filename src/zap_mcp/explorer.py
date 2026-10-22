@@ -117,6 +117,39 @@ async def try_login(page, username: str, password: str) -> tuple[bool, str]:
     return True, "login submetido"
 
 
+async def sweep_ui5_routes(page, app_root: str) -> tuple[list, list]:
+    """Le as rotas do manifest.json do UI5 e visita cada uma (sem parametro).
+
+    Navegar #/<rota> faz o UI5 montar a tela e disparar suas chamadas, que o
+    ZAP registra — cobertura deterministica, nao dependente de clique.
+    """
+    manifest = await page.evaluate(
+        "async (u) => { try { const r = await fetch(u);"
+        " if (!r.ok) return null; return await r.json(); } catch (e) { return null; } }",
+        app_root + "/manifest.json",
+    )
+    patterns: list[str] = []
+    try:
+        routing = (((manifest or {}).get("sap.ui5") or {}).get("routing") or {})
+        for r in routing.get("routes") or []:
+            pat = r.get("pattern")
+            if isinstance(pat, str):
+                patterns.append(pat)
+    except Exception:
+        pass
+    visited: list[str] = []
+    for pat in patterns:
+        if any(c in pat for c in "{:*"):  # precisa de parametro: pula na v1
+            continue
+        try:
+            await page.evaluate("(h) => { window.location.hash = h; }", "#/" + pat)
+            await page.wait_for_load_state("networkidle", timeout=6000)
+            visited.append(pat)
+        except Exception:
+            continue
+    return patterns, visited
+
+
 async def explore(target: str, proxy: str, max_seconds: float, max_actions: int,
                   username: str = "", password: str = "") -> dict:
     from playwright.async_api import async_playwright
@@ -188,6 +221,11 @@ async def explore(target: str, proxy: str, max_seconds: float, max_actions: int,
                         continue
                 await page.wait_for_timeout(1500)
 
+        routes_found, routes_visited = [], []
+        if login_ok["v"]:
+            app_root = f"{urlparse(target).scheme}://{urlparse(target).netloc}"
+            routes_found, routes_visited = await sweep_ui5_routes(page, app_root)
+
         async def candidates():
             found = []
             try:
@@ -250,6 +288,8 @@ async def explore(target: str, proxy: str, max_seconds: float, max_actions: int,
         "login_status": login_status,
         "actions": actions,
         "requests_total": len(requests),
+        "routes_found": len(routes_found),
+        "routes_visited": routes_visited,
         "endpoints_host": uniq,
     }
 
@@ -266,6 +306,8 @@ def main() -> None:
     password = os.environ.get("EXPLORE_PASS", "")
     result = asyncio.run(explore(target, proxy, max_seconds, max_actions, username, password))
     print("titulo:", result["page_title"], "| login:", result["login_status"])
+    print("rotas UI5:", result.get("routes_found", 0),
+          "| visitadas:", len(result.get("routes_visited", [])))
     print("acoes:", result["actions"], "| requests:", result["requests_total"],
           "| endpoints unicos (host):", len(result["endpoints_host"]))
     for method, url in result["endpoints_host"][:80]:
