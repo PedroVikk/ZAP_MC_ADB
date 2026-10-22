@@ -87,6 +87,22 @@ class ZapClient:
     def import_openapi(self, url: str) -> Any:
         return self._zap_api().openapi.import_url(url)
 
+    # --- certificado CA (para o modulo ADB) ------------------------------
+    def root_ca_pem(self) -> str:
+        """Baixa o certificado raiz da CA do ZAP (PEM) pela API OTHER.
+
+        Vai direto na API do ZAP (nao passa pelo proxy) para o ADB instalar no
+        aparelho e o ZAP conseguir inspecionar o HTTPS do app.
+        """
+        import urllib.parse
+        import urllib.request
+
+        url = f"{self._config.base_url}/OTHER/core/other/rootcert/"
+        if self._config.api_key:
+            url += "?" + urllib.parse.urlencode({"apikey": self._config.api_key})
+        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310 - host local do usuario
+            return resp.read().decode("utf-8", "replace")
+
     # --- relatorios -------------------------------------------------------
     def report(self, fmt: str) -> str | None:
         core = self._zap_api().core
@@ -98,3 +114,8 @@ class ZapClient:
             mdreport = getattr(core, "mdreport", None)
             return mdreport() if callable(mdreport) else None
         return None
+
+    # --- mensagens (para extrair endpoints e urls vistos) ----------------
+    def messages(self, site: str | None = None) -> list[dict]:
+        """Todas as requisicoes que passaram pelo ZAP (opcionalmente de um site)."""
+        return list(self._zap_api().core.messages(baseurl=site or ""))

@@ -1,5 +1,5 @@
 """Testes das protecoes puras (sem ZAP no ar)."""
-from zap_mcp.reports import group_alerts, risk_counts, risk_rank
+from zap_mcp.reports import group_alerts, risk_counts, risk_rank, summarize_endpoints
 from zap_mcp.safety import (
     ScanRegistry,
     is_allowed,
@@ -59,6 +59,25 @@ def test_risk_rank_handles_suffix():
 def test_risk_counts():
     counts = risk_counts([{"risk": "High"}, {"risk": "High"}, {"risk": "Low"}])
     assert counts == {"High": 2, "Medium": 0, "Low": 1, "Informational": 0}
+
+
+def test_summarize_endpoints_separates_api_from_pages():
+    messages = [
+        {"requestHeader": "GET http://h/ HTTP/1.1\r\nHost: h\r\n",
+         "responseHeader": "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"},
+        {"requestHeader": "GET http://h/ HTTP/1.1\r\nHost: h\r\n",
+         "responseHeader": "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"},
+        {"requestHeader": "POST http://h/login HTTP/1.1\r\nHost: h\r\n",
+         "responseHeader": "HTTP/1.1 302 Found\r\n"},
+        {"requestHeader": "GET http://h/api/users?x=1 HTTP/1.1\r\nHost: h\r\n",
+         "responseHeader": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"},
+    ]
+    s = summarize_endpoints(messages)
+    assert s["total_urls"] == 3  # a pagina / repetida conta 1
+    urls = {(e["method"], e["url"]) for e in s["endpoints"]}
+    assert ("POST", "http://h/login") in urls          # metodo que muda estado
+    assert ("GET", "http://h/api/users") in urls        # json + path de api
+    assert [p for p in s["pages"] if p["url"] == "http://h/"][0]["hits"] == 2
 
 
 def test_scan_registry_tracks_and_lists():

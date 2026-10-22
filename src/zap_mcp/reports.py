@@ -93,6 +93,73 @@ def markdown_from_alerts(grouped: dict) -> str:
     return "\n".join(lines)
 
 
+_API_HINTS = ("/api/", "/odata/", "/rest/", "/service", "/graphql", "/v1/", "/v2/", "$batch")
+
+
+def _looks_api(method: str, url: str, content_type: str) -> bool:
+    if method.upper() not in ("GET", "HEAD", "OPTIONS"):
+        return True
+    ct = (content_type or "").lower()
+    if "json" in ct or "xml" in ct:
+        return True
+    low = url.lower()
+    return any(hint in low for hint in _API_HINTS)
+
+
+def _first_line(header: str) -> str:
+    return (header or "").split("\r\n", 1)[0].split("\n", 1)[0]
+
+
+def _header_value(header: str, name: str) -> str:
+    name_l = name.lower() + ":"
+    for line in (header or "").replace("\r\n", "\n").split("\n"):
+        if line.lower().startswith(name_l):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def summarize_endpoints(messages: list[dict]) -> dict:
+    """Agrupa as requisicoes do ZAP em endpoints unicos (metodo + path).
+
+    Separa 'pages' (navegacao/estaticos) de 'endpoints' (API/XHR: metodo que
+    muda estado, ou resposta JSON/XML, ou path tipico de API).
+    """
+    seen: dict[tuple[str, str], dict] = {}
+    for m in messages:
+        req_first = _first_line(m.get("requestHeader", ""))
+        parts = req_first.split(" ")
+        method = parts[0] if parts else "?"
+        url = parts[1] if len(parts) > 1 else ""
+        if not url:
+            continue
+        resp = m.get("responseHeader", "")
+        status_parts = _first_line(resp).split(" ")
+        status = status_parts[1] if len(status_parts) > 1 else ""
+        content_type = _header_value(resp, "Content-Type").split(";")[0]
+        path = url.split("?", 1)[0]
+        key = (method, path)
+        entry = seen.get(key)
+        if entry is None:
+            entry = {
+                "method": method,
+                "url": path,
+                "status": status,
+                "content_type": content_type,
+                "hits": 0,
+                "has_params": "?" in url,
+            }
+            seen[key] = entry
+        entry["hits"] += 1
+        entry["has_params"] = entry["has_params"] or "?" in url
+
+    items = list(seen.values())
+    endpoints = [e for e in items if _looks_api(e["method"], e["url"], e["content_type"])]
+    pages = [e for e in items if e not in endpoints]
+    endpoints.sort(key=lambda e: (e["method"], e["url"]))
+    pages.sort(key=lambda e: e["url"])
+    return {"total_urls": len(items), "endpoints": endpoints, "pages": pages}
+
+
 def write_report(report_dir: str, fmt: str, content: str) -> str:
     ext = _EXT.get(fmt, "txt")
     os.makedirs(report_dir, exist_ok=True)

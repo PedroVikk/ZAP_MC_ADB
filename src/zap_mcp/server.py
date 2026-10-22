@@ -10,7 +10,7 @@ from __future__ import annotations
 import functools
 from typing import Callable
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .client import ZapClient, ZapUnavailable
 from .config import Config
@@ -18,11 +18,12 @@ from .reports import (
     group_alerts,
     markdown_from_alerts,
     risk_counts,
+    summarize_endpoints,
     write_report,
 )
 from .safety import ScanRegistry, TargetNotAllowed, ensure_allowed, normalize_allowlist
 
-mcp = FastMCP("zap-mcp")
+mcp = MCPServer("zap-mcp")
 
 _config = Config.from_env()
 _allowlist = normalize_allowlist(_config.allowed_targets)
@@ -163,6 +164,23 @@ def get_alerts(min_risk: str = "Low", group_by_type: bool = True, base_url: str 
     """
     alerts = _client.alerts(base_url)
     return group_alerts(alerts, min_risk=min_risk, group_by_type=group_by_type)
+
+
+@mcp.tool()
+@guarded
+def get_urls(site: str | None = None, only_endpoints: bool = False) -> dict:
+    """URLs e endpoints que o ZAP capturou (spider + trafego que passou pelo proxy).
+
+    Separa paginas de chamadas de API/XHR (metodo que muda estado, resposta
+    JSON/XML, ou path tipico de API). Para um SPA, os endpoints de API so
+    aparecem se o trafego passou pelo ZAP (AJAX Spider ou navegacao proxied).
+    site: limita a um site especifico (ex.: https://host). only_endpoints foca
+    nas chamadas de API/XHR.
+    """
+    summary = summarize_endpoints(_client.messages(site))
+    if only_endpoints:
+        return {"total_urls": summary["total_urls"], "endpoints": summary["endpoints"]}
+    return summary
 
 
 @mcp.tool()
