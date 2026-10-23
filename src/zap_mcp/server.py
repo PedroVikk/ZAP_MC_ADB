@@ -14,6 +14,7 @@ from mcp.server.mcpserver import MCPServer
 
 from .client import ZapClient, ZapUnavailable
 from .config import Config
+from .odata import ODataError, run_plan
 from .reports import (
     group_alerts,
     markdown_from_alerts,
@@ -50,6 +51,8 @@ def guarded(fn: Callable) -> Callable:
             return {"error": "alvo_nao_autorizado", "detail": str(exc)}
         except ZapUnavailable as exc:
             return {"error": "zap_indisponivel", "detail": str(exc)}
+        except ODataError as exc:
+            return {"error": "odata", "detail": str(exc)}
         except Exception as exc:  # noqa: BLE001 - fronteira do servidor
             return {"error": "falha", "detail": f"{type(exc).__name__}: {exc}"}
 
@@ -257,6 +260,55 @@ def import_openapi(url: str, target: str | None = None) -> dict:
     ensure_allowed(target or url, _allowlist)
     result = _client.import_openapi(url)
     return {"status": "importado", "spec": url, "result": result}
+
+
+@mcp.tool()
+@guarded
+def odata_discover(metadata_url: str, target: str | None = None) -> dict:
+    """Le o $metadata de um servico OData e lista os EntitySets e as requisicoes
+    que daria para testar — SEM enviar nada ao alvo.
+
+    E o passo de reconhecimento para um app SAPUI5: o contrato do servico diz
+    quais colecoes, chaves e propriedades existem. O host (target, ou o host da
+    propria URL) precisa estar autorizado. Nada passa pelo ZAP aqui: so busca o
+    $metadata para planejar.
+    """
+    ensure_allowed(target or metadata_url, _allowlist)
+    return run_plan(metadata_url, _config.base_url, send=False)
+
+
+@mcp.tool()
+@guarded
+def odata_probe(
+    metadata_url: str,
+    include_writes: bool = False,
+    confirm: bool = False,
+    username: str = "",
+    password: str = "",
+    target: str | None = None,
+) -> dict:
+    """Monta as requisicoes do servico OData e as ENVIA pelo proxy do ZAP, para o
+    ZAP registrar cada endpoint e poder escanear depois (get_urls, active_scan).
+
+    Por padrao so leitura (GET de colecao, por chave, $filter/$select/$expand).
+    include_writes=True tambem manda POST/PATCH/DELETE — altera dados de verdade,
+    entao exige confirm=True e busca o CSRF token (X-CSRF-Token: Fetch) antes.
+    username/password: Basic auth, se o servico pedir. O host precisa estar
+    autorizado. Depois disto, rode um active_scan no host para fuzzar os params.
+    """
+    ensure_allowed(target or metadata_url, _allowlist)
+    if include_writes and not confirm:
+        return {
+            "status": "confirmacao_necessaria",
+            "metadata_url": metadata_url,
+            "message": (
+                "include_writes envia POST/PATCH/DELETE reais ao servico OData "
+                "(cria, altera e apaga registros). Rechame com confirm=True para "
+                "autorizar — so em base de teste."
+            ),
+        }
+    return run_plan(metadata_url, _config.base_url, username=username,
+                    password=password, include_writes=include_writes, send=True)
 
 
 @mcp.tool()

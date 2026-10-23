@@ -132,6 +132,32 @@ export interface ReportFile {
   mtime: number;
 }
 
+export interface ODataEntitySet {
+  entityset: string;
+  keys: string[];
+  props: number;
+  navs: number;
+}
+
+export interface ODataResult {
+  service_root?: string;
+  odata_version?: string;
+  entitysets?: number;
+  requests_planned?: number;
+  includes_writes?: boolean;
+  discovered?: ODataEntitySet[];
+  requests?: { method: string; kind: string; entityset: string; path: string }[];
+  sent?: number;
+  failed?: number;
+  csrf_token?: string;
+  by_status?: Record<string, number>;
+  results?: { method: string; kind: string; entityset: string; status: number; path: string }[];
+  status?: string;
+  message?: string;
+  error?: string;
+  detail?: string;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -159,6 +185,15 @@ export const api = {
   alert: (id: string) => call<AlertDetail>(`/api/alerts/${encodeURIComponent(id)}`),
   urls: () => call<Urls>("/api/urls"),
   reports: () => call<ReportFile[]>("/api/reports"),
+  odataDiscover: (metadata_url: string) =>
+    call<ODataResult>("/api/odata/discover", json("POST", { metadata_url })),
+  odataProbe: (p: {
+    metadata_url: string;
+    include_writes: boolean;
+    confirm: boolean;
+    username: string;
+    password: string;
+  }) => call<ODataResult>("/api/odata/probe", json("POST", p)),
   makeReport: (kind: "zap" | "endpoints", format = "html") =>
     call<{ path?: string; error?: string; detail?: string }>(
       "/api/reports",

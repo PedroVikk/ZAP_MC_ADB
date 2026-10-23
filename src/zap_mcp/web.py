@@ -276,6 +276,27 @@ async def reports_create(request: Request):
     return JSONResponse(data)
 
 
+async def odata_discover(request: Request):
+    body = await request.json()
+    url = (body.get("metadata_url") or "").strip()
+    if not url:
+        return _err(400, "Informe a URL do $metadata.")
+    data = await asyncio.to_thread(S.odata_discover, url)
+    return JSONResponse(data)
+
+
+async def odata_probe(request: Request):
+    body = await request.json()
+    url = (body.get("metadata_url") or "").strip()
+    if not url:
+        return _err(400, "Informe a URL do $metadata.")
+    data = await asyncio.to_thread(
+        S.odata_probe, url, bool(body.get("include_writes")),
+        bool(body.get("confirm")), body.get("username", ""), body.get("password", ""),
+    )
+    return JSONResponse(data)
+
+
 async def report_file(request: Request):
     name = os.path.basename(request.path_params["name"])  # sem ../
     folder = Path(S._config.report_dir)
@@ -296,6 +317,8 @@ routes = [
     Route("/api/alerts", alerts),
     Route("/api/alerts/{alert_id}", alert_detail),
     Route("/api/urls", urls),
+    Route("/api/odata/discover", odata_discover, methods=["POST"]),
+    Route("/api/odata/probe", odata_probe, methods=["POST"]),
     Route("/api/reports", reports_list),
     Route("/api/reports", reports_create, methods=["POST"]),
     Route("/api/reports/{name}", report_file),
