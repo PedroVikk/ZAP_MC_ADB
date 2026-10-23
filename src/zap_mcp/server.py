@@ -14,6 +14,7 @@ from mcp.server.mcpserver import MCPServer
 
 from .client import ZapClient, ZapUnavailable
 from .config import Config
+from .nuclei import NucleiUnavailable, check as nuclei_check, run_blocking as nuclei_run
 from .odata import ODataError, run_plan
 from .reports import (
     group_alerts,
@@ -53,6 +54,8 @@ def guarded(fn: Callable) -> Callable:
             return {"error": "zap_indisponivel", "detail": str(exc)}
         except ODataError as exc:
             return {"error": "odata", "detail": str(exc)}
+        except NucleiUnavailable as exc:
+            return {"error": "nuclei_indisponivel", "detail": str(exc)}
         except Exception as exc:  # noqa: BLE001 - fronteira do servidor
             return {"error": "falha", "detail": f"{type(exc).__name__}: {exc}"}
 
@@ -309,6 +312,39 @@ def odata_probe(
         }
     return run_plan(metadata_url, _config.base_url, username=username,
                     password=password, include_writes=include_writes, send=True)
+
+
+@mcp.tool()
+@guarded
+def nuclei_status() -> dict:
+    """Diz se o Nuclei esta instalado e qual a versao (NUCLEI_PATH)."""
+    return {"available": True, "version": nuclei_check(_config.nuclei_path),
+            "path": _config.nuclei_path}
+
+
+@mcp.tool()
+@guarded
+def nuclei_scan(
+    target: str,
+    severity: str = "",
+    tags: str = "",
+    templates: str = "",
+    through_zap: bool = False,
+    max_seconds: int = 300,
+) -> dict:
+    """Roda o Nuclei contra o alvo e devolve os achados agrupados por severidade.
+
+    Complementa o ZAP com assinaturas conhecidas (CVEs, misconfig, templates de
+    SAP) e pouquissimo falso positivo. Bloqueante ate o fim ou max_seconds.
+    severity: critical,high,medium,low,info (lista separada por virgula).
+    tags: ex. 'sap,cve'. templates: caminho/-t especifico. through_zap=True manda
+    pelo proxy do ZAP para os achados tambem ficarem registrados la. O host
+    precisa estar autorizado.
+    """
+    ensure_allowed(target, _allowlist)
+    proxy = _config.base_url if through_zap else ""
+    return nuclei_run(_config.nuclei_path, [target], severity=severity, tags=tags,
+                      templates=templates, proxy=proxy, cap_seconds=float(max_seconds))
 
 
 @mcp.tool()

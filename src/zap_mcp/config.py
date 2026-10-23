@@ -26,6 +26,7 @@ class Config:
     max_scan_seconds: int
     report_dir: str
     adb_path: str
+    nuclei_path: str
 
     @staticmethod
     def from_env() -> "Config":
@@ -36,4 +37,5 @@ class Config:
             max_scan_seconds=int(os.environ.get("ZAP_MAX_SCAN_SECONDS", "900")),
             report_dir=os.environ.get("ZAP_REPORT_DIR", "reports"),
             adb_path=os.environ.get("ADB_PATH", "adb"),
+            nuclei_path=os.environ.get("NUCLEI_PATH", "nuclei"),
         )

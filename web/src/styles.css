@@ -1017,6 +1017,54 @@ input[type="range"] {
   --risk: var(--info);
 }
 
+/* severidades do Nuclei (minusculas) */
+.risk-critical {
+  --risk: #e11d48;
+}
+.risk-high {
+  --risk: var(--high);
+}
+.risk-medium {
+  --risk: var(--medium);
+}
+.risk-low {
+  --risk: var(--low);
+}
+.risk-info {
+  --risk: var(--info);
+}
+.risk-unknown {
+  --risk: var(--dim);
+}
+
+.sev-chip {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.sev-chip.on {
+  color: var(--risk);
+  border-color: color-mix(in srgb, var(--risk) 50%, transparent);
+  background: color-mix(in srgb, var(--risk) 14%, transparent);
+  font-weight: 600;
+}
+
+.risk-tiles.nuclei {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+@media (max-width: 600px) {
+  .risk-tiles.nuclei {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 .badge {
   color: var(--risk);
   background: color-mix(in srgb, var(--risk) 14%, transparent);

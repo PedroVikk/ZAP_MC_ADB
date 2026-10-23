@@ -24,6 +24,7 @@ from starlette.staticfiles import StaticFiles
 
 from zap_mcp import server as S
 from zap_mcp.explorer import explore
+from zap_mcp.nuclei import NucleiRun, check as nuclei_check
 from zap_mcp.reports import _EXT
 from zap_mcp.safety import is_allowed, normalize_allowlist
 
@@ -297,6 +298,51 @@ async def odata_probe(request: Request):
     return JSONResponse(data)
 
 
+_nuclei: NucleiRun | None = None
+_nuclei_lock = threading.Lock()
+
+
+async def nuclei_status(_: Request):
+    try:
+        version = await asyncio.to_thread(nuclei_check, S._config.nuclei_path)
+        return JSONResponse({"available": True, "version": version})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"available": False, "detail": str(exc)})
+
+
+async def nuclei_start(request: Request):
+    global _nuclei
+    body = await request.json()
+    raw = body.get("targets") or ([body["target"]] if body.get("target") else [])
+    targets = [t.strip() for t in raw if str(t).strip()]
+    if not targets:
+        return _err(400, "Informe ao menos um alvo.")
+    blocked = [t for t in targets if not is_allowed(t, S._allowlist)]
+    if blocked:
+        return _err(403, f"Fora dos alvos autorizados: {', '.join(blocked)}")
+    with _nuclei_lock:
+        if _nuclei is not None and _nuclei.finished_at is None:
+            return _err(409, "Ja existe um scan do Nuclei rodando.")
+        _nuclei = NucleiRun(targets, body)
+        run = _nuclei
+    proxy = S._config.base_url if body.get("through_zap") else ""
+    cap = min(int(body.get("max_seconds", 300)), S._config.max_scan_seconds)
+    run.start(S._config.nuclei_path, body.get("severity", ""), body.get("tags", ""),
+              body.get("templates", ""), proxy, int(body.get("rate_limit", 150)), cap)
+    return JSONResponse(run.snapshot())
+
+
+async def nuclei_get(_: Request):
+    return JSONResponse(_nuclei.snapshot() if _nuclei else None)
+
+
+async def nuclei_stop(_: Request):
+    if _nuclei is None or _nuclei.finished_at is not None:
+        return _err(409, "Nenhum scan do Nuclei rodando.")
+    _nuclei.stop()
+    return JSONResponse(_nuclei.snapshot())
+
+
 async def report_file(request: Request):
     name = os.path.basename(request.path_params["name"])  # sem ../
     folder = Path(S._config.report_dir)
@@ -319,6 +365,10 @@ routes = [
     Route("/api/urls", urls),
     Route("/api/odata/discover", odata_discover, methods=["POST"]),
     Route("/api/odata/probe", odata_probe, methods=["POST"]),
+    Route("/api/nuclei/status", nuclei_status),
+    Route("/api/nuclei", nuclei_get),
+    Route("/api/nuclei", nuclei_start, methods=["POST"]),
+    Route("/api/nuclei/stop", nuclei_stop, methods=["POST"]),
     Route("/api/reports", reports_list),
     Route("/api/reports", reports_create, methods=["POST"]),
     Route("/api/reports/{name}", report_file),

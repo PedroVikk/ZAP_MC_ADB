@@ -158,6 +158,37 @@ export interface ODataResult {
   detail?: string;
 }
 
+export interface NucleiFinding {
+  id: string;
+  name: string;
+  severity: string;
+  host: string;
+  matched_at: string;
+  type: string;
+  tags: string[];
+}
+
+export interface NucleiRun {
+  running: boolean;
+  targets: string[];
+  started_at: number;
+  finished_at: number | null;
+  error: string | null;
+  log: string[];
+  total: number;
+  by_severity: Record<string, number>;
+  findings: NucleiFinding[];
+}
+
+export interface NucleiStartParams {
+  targets: string[];
+  severity: string;
+  tags: string;
+  templates: string;
+  through_zap: boolean;
+  max_seconds: number;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -185,6 +216,10 @@ export const api = {
   alert: (id: string) => call<AlertDetail>(`/api/alerts/${encodeURIComponent(id)}`),
   urls: () => call<Urls>("/api/urls"),
   reports: () => call<ReportFile[]>("/api/reports"),
+  nucleiStatus: () => call<{ available: boolean; version?: string; detail?: string }>("/api/nuclei/status"),
+  nucleiRun: () => call<NucleiRun | null>("/api/nuclei"),
+  nucleiStart: (p: NucleiStartParams) => call<NucleiRun>("/api/nuclei", json("POST", p)),
+  nucleiStop: () => call<NucleiRun>("/api/nuclei/stop", { method: "POST" }),
   odataDiscover: (metadata_url: string) =>
     call<ODataResult>("/api/odata/discover", json("POST", { metadata_url })),
   odataProbe: (p: {
