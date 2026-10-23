@@ -17,11 +17,19 @@ from .config import Config
 from .reports import (
     group_alerts,
     markdown_from_alerts,
+    report_by_endpoint,
     risk_counts,
     summarize_endpoints,
+    summarize_urls,
     write_report,
 )
-from .safety import ScanRegistry, TargetNotAllowed, ensure_allowed, normalize_allowlist
+from .safety import (
+    ScanRegistry,
+    TargetNotAllowed,
+    ensure_allowed,
+    is_allowed,
+    normalize_allowlist,
+)
 
 mcp = MCPServer("zap-mcp")
 
@@ -174,10 +182,29 @@ def get_urls(site: str | None = None, only_endpoints: bool = False) -> dict:
     Separa paginas de chamadas de API/XHR (metodo que muda estado, resposta
     JSON/XML, ou path tipico de API). Para um SPA, os endpoints de API so
     aparecem se o trafego passou pelo ZAP (AJAX Spider ou navegacao proxied).
-    site: limita a um site especifico (ex.: https://host). only_endpoints foca
-    nas chamadas de API/XHR.
+    site: limita a um site especifico (ex.: https://host). Sem site, AGREGA todos
+    os hosts autorizados (o SPA e seu backend costumam estar em origens diferentes —
+    ex.: :5001 e :5000 —, entao filtrar por uma so origem perderia endpoints), e
+    descarta CDNs/terceiros fora da allowlist. only_endpoints foca nas chamadas API/XHR.
+
+    Usa a lista leve de URLs do ZAP (`core.urls`): buscar as mensagens inteiras de um
+    site grande (depois do Spider) estoura o proxy com a resposta gigante e trava a
+    leitura. A lista de URLs e rapida e cobre tudo que o ZAP viu.
     """
-    summary = summarize_endpoints(_client.messages(site))
+    if site:
+        urls = _client.urls(site)
+    else:
+        # agrega so os hosts autorizados (deny-by-default); fora CDNs/terceiros.
+        # Um host que falhe (externo fora do ar, etc.) nao zera o resultado.
+        urls = []
+        for s in _client.sites():
+            if not is_allowed(s, _allowlist):
+                continue
+            try:
+                urls.extend(_client.urls(s))
+            except Exception:  # noqa: BLE001
+                continue
+    summary = summarize_urls(urls)
     if only_endpoints:
         return {"total_urls": summary["total_urls"], "endpoints": summary["endpoints"]}
     return summary
@@ -252,3 +279,92 @@ def generate_report(format: str = "html") -> dict:
 
     path = write_report(_config.report_dir, fmt, content)
     return {"format": fmt, "path": path, "by_risk": risk_counts(_client.alerts(None))}
+
+
+def _walk_plugins(node, out: list) -> None:
+    """Acha os plugins (tipos de ataque) no scan_progress, seja qual for o aninhamento."""
+    if isinstance(node, dict):
+        if "name" in node and ("status" in node or "reqCount" in node):
+            out.append({
+                "ataque": node.get("name"),
+                "status": node.get("status"),
+                "reqs": node.get("reqCount"),
+                "alertas": node.get("alertCount"),
+            })
+        for v in node.values():
+            _walk_plugins(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            _walk_plugins(v, out)
+
+
+@mcp.tool()
+@guarded
+def active_scan_feed(scan_id: str, recent: int = 0) -> dict:
+    """Snapshot ao vivo do scan ativo: progresso, ataques enviados, alertas e qual
+    tipo de ataque esta rodando agora. Chamado em loop pelo painel.
+
+    So faz chamadas LEVES (status/contadores/progresso): buscar o corpo de cada
+    mensagem pelo proxy trava, porque durante o scan o proxy do ZAP fica saturado.
+    recent>0 tenta trazer as ultimas requisicoes (metodo+URL), mas e opcional e pode
+    ficar lento — por isso vem desligado por padrao.
+    """
+    progress = _client.active_status(scan_id)
+    msg_ids = _client.active_messages_ids(scan_id)
+    alert_ids = _client.active_alerts_ids(scan_id)
+
+    plugins: list = []
+    _walk_plugins(_client.active_progress(scan_id), plugins)
+    rodando = [p for p in plugins
+               if (p.get("status") or "").lower().startswith(("running", "em", "andamento"))]
+
+    ultimos = []
+    for mid in (msg_ids[-recent:][::-1] if recent else []):
+        try:
+            m = _client.message(mid)
+            first = (m.get("requestHeader", "") or "").split("\n", 1)[0].split(" ")
+            resp = (m.get("responseHeader", "") or "").split("\n", 1)[0].split(" ")
+            ultimos.append({
+                "metodo": first[0] if first else "?",
+                "url": first[1] if len(first) > 1 else "",
+                "status": resp[1] if len(resp) > 1 else "",
+            })
+        except Exception:  # noqa: BLE001
+            continue
+
+    return {
+        "progresso": progress,
+        "ataques_enviados": len(msg_ids),
+        "alertas": len(alert_ids),
+        "rodando": rodando[:6],
+        "ultimos_ataques": ultimos,
+        "concluido": progress >= 100,
+    }
+
+
+@mcp.tool()
+@guarded
+def report_endpoints(site: str | None = None, min_risk: str = "Informational") -> dict:
+    """Documento (Markdown) do que o ZAP testou/achou em CADA tela/endpoint.
+
+    Agrupa os alertas por metodo+URL, mostra risco, parametro, o ataque enviado
+    (quando houve scan ativo) e a evidencia, e lista os endpoints vistos sem achados.
+    Sem site, usa os hosts autorizados. Grava em arquivo e devolve o caminho.
+    """
+    if site:
+        alerts = _client.alerts(site)
+        urls = _client.urls(site)
+    else:
+        alerts, urls = [], []
+        for s in _client.sites():
+            if not is_allowed(s, _allowlist):
+                continue
+            try:
+                alerts.extend(_client.alerts(s))
+                urls.extend(_client.urls(s))
+            except Exception:  # noqa: BLE001
+                continue
+    content = report_by_endpoint(alerts, urls, min_risk=min_risk)
+    path = write_report(_config.report_dir, "md", content)
+    return {"path": path, "endpoints_com_achados": content.count("\n## `"),
+            "by_risk": risk_counts(alerts)}

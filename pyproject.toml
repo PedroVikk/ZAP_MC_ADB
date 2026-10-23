@@ -12,9 +12,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 explore = ["playwright>=1.40"]
+panel = ["streamlit>=1.30", "playwright>=1.40"]
+web = ["uvicorn>=0.30", "starlette>=0.37", "playwright>=1.40"]
 
 [project.scripts]
 zap-mcp = "zap_mcp.__main__:main"
+zap-mcp-web = "zap_mcp.web:main"
 
 [build-system]
 requires = ["hatchling"]

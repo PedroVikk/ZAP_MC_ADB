@@ -160,6 +160,135 @@ def summarize_endpoints(messages: list[dict]) -> dict:
     return {"total_urls": len(items), "endpoints": endpoints, "pages": pages}
 
 
+_STATIC_EXT = (
+    ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf", ".ico", ".map", ".html", ".htm",
+    ".txt", ".properties", ".less", ".scss",
+)
+
+
+def _is_static(path: str) -> bool:
+    low = path.lower().rstrip("/")
+    return any(low.endswith(ext) for ext in _STATIC_EXT)
+
+
+def summarize_urls(urls: list[str]) -> dict:
+    """Resume a lista de URLs do ZAP (chamada leve `core.urls`) em endpoints x paginas.
+
+    Sem o metodo HTTP (a lista de URLs nao traz), a separacao e pelo caminho:
+    recurso estatico (js/css/img/fonte/html) e pagina; path tipico de API
+    (/api/, /v1/, /odata/, $batch...) e endpoint. Agrupa por caminho (sem query).
+    """
+    seen: dict[str, dict] = {}
+    for u in urls:
+        if not u:
+            continue
+        path = u.split("?", 1)[0]
+        entry = seen.get(path)
+        if entry is None:
+            low = path.lower()
+            is_api = (not _is_static(path)) and any(h in low for h in _API_HINTS)
+            entry = {
+                "method": "",
+                "url": path,
+                "content_type": "",
+                "is_api": is_api,
+                "has_params": False,
+            }
+            seen[path] = entry
+        entry["has_params"] = entry["has_params"] or "?" in u
+
+    items = list(seen.values())
+    endpoints = [e for e in items if e["is_api"]]
+    pages = [e for e in items if not e["is_api"]]
+    endpoints.sort(key=lambda e: e["url"])
+    pages.sort(key=lambda e: e["url"])
+    return {"total_urls": len(items), "endpoints": endpoints, "pages": pages}
+
+
+_RISK_LABEL = {3: "Alto", 2: "Medio", 1: "Baixo", 0: "Informativo"}
+
+
+def report_by_endpoint(alerts: list[dict], urls: list[str] | None = None,
+                       min_risk: str = "Informational") -> str:
+    """Documento por tela/endpoint: o que o ZAP testou e achou em cada URL.
+
+    Agrupa os alertas por (metodo, URL) — cada grupo e um endpoint/tela. Mostra
+    risco, nome do achado, parametro, o ataque enviado (quando houve scan ativo) e a
+    evidencia. No fim, lista as URLs vistas que nao tiveram nenhum achado.
+    """
+    threshold = risk_rank(min_risk)
+    by_ep: dict[tuple[str, str], list[dict]] = {}
+    for a in alerts:
+        if risk_rank(a.get("risk")) < threshold:
+            continue
+        method = (a.get("method") or "GET").upper()
+        url = (a.get("url") or "").split("?", 1)[0]
+        by_ep.setdefault((method, url), []).append(a)
+
+    counts = risk_counts([a for a in alerts if risk_rank(a.get("risk")) >= threshold])
+    stamp = _dt.datetime.now().strftime("%d/%m/%Y %H:%M")
+    lines = [
+        "# Relatorio de ataque por endpoint (ZAP)",
+        "",
+        f"Gerado em {stamp}.",
+        "",
+        "Resumo: " + ", ".join(f"{k} {v}" for k, v in counts.items())
+        + f"  —  {len(by_ep)} endpoint(s) com achados.",
+        "",
+        "> 'Ataque' = payload enviado pelo scan ativo. Sem o scan ativo, os achados"
+        " sao passivos (cabecalhos, divulgacao de info, etc.).",
+        "",
+    ]
+
+    # endpoints com mais risco primeiro
+    def ep_rank(item):
+        (_m, _u), al = item
+        return max((risk_rank(a.get("risk")) for a in al), default=0)
+
+    for (method, url), al in sorted(by_ep.items(), key=ep_rank, reverse=True):
+        top = max((risk_rank(a.get("risk")) for a in al), default=0)
+        lines.append(f"## `{method}` {url}")
+        lines.append(f"Pior risco: **{_RISK_LABEL.get(top, '?')}** — {len(al)} achado(s).")
+        lines.append("")
+        # agrupa por tipo de achado dentro do endpoint
+        seen_types: dict[str, dict] = {}
+        for a in al:
+            key = a.get("alert") or a.get("name") or "?"
+            b = seen_types.setdefault(key, {"risk": a.get("risk"), "params": set(),
+                                            "attack": a.get("attack") or "",
+                                            "evidence": a.get("evidence") or "",
+                                            "cweid": a.get("cweid")})
+            if a.get("param"):
+                b["params"].add(a["param"])
+        for name, b in sorted(seen_types.items(),
+                              key=lambda kv: risk_rank(kv[1]["risk"]), reverse=True):
+            risk = (b["risk"] or "").split(" ")[0]
+            lines.append(f"- **[{risk}] {name}**")
+            if b["params"]:
+                lines.append(f"  - Parametro(s): {', '.join(sorted(b['params']))}")
+            if b["attack"]:
+                lines.append(f"  - Ataque enviado: `{b['attack'][:200]}`")
+            if b["evidence"]:
+                lines.append(f"  - Evidencia: `{b['evidence'][:200]}`")
+            if b["cweid"] and b["cweid"] not in ("-1", "", None):
+                lines.append(f"  - CWE: {b['cweid']}")
+        lines.append("")
+
+    # endpoints/urls sem nenhum achado (foram vistos, mas nada saltou)
+    if urls:
+        hit = {u for (_m, u) in by_ep}
+        clean = sorted({u.split("?", 1)[0] for u in urls} - hit)
+        if clean:
+            lines.append(f"## Endpoints vistos sem achados ({len(clean)})")
+            lines.append("")
+            for u in clean:
+                lines.append(f"- {u}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
 def write_report(report_dir: str, fmt: str, content: str) -> str:
     ext = _EXT.get(fmt, "txt")
     os.makedirs(report_dir, exist_ok=True)

@@ -73,6 +73,27 @@ class ZapClient:
     def active_stop(self, scan_id: str) -> None:
         self._zap_api().ascan.stop(scan_id)
 
+    def active_messages_ids(self, scan_id: str) -> list[str]:
+        """IDs das requisicoes de ataque que o scan ativo ja enviou."""
+        try:
+            return list(self._zap_api().ascan.messages_ids(scan_id))
+        except Exception:  # noqa: BLE001
+            return []
+
+    def active_alerts_ids(self, scan_id: str) -> list[str]:
+        """IDs dos alertas que o scan ativo ja levantou."""
+        try:
+            return list(self._zap_api().ascan.alerts_ids(scan_id))
+        except Exception:  # noqa: BLE001
+            return []
+
+    def active_progress(self, scan_id: str) -> list:
+        """Progresso por tipo de ataque (plugin) do scan ativo."""
+        try:
+            return list(self._zap_api().ascan.scan_progress(scan_id))
+        except Exception:  # noqa: BLE001
+            return []
+
     # --- alertas ----------------------------------------------------------
     def alerts(self, base_url: str | None = None) -> list[dict]:
         return list(self._zap_api().core.alerts(baseurl=base_url or ""))
@@ -116,6 +137,45 @@ class ZapClient:
         return None
 
     # --- mensagens (para extrair endpoints e urls vistos) ----------------
+    def sites(self) -> list[str]:
+        """Hosts que o ZAP registrou (ex.: https://host:porta)."""
+        return list(self._zap_api().core.sites)
+
+    def urls(self, site: str | None = None) -> list[str]:
+        """Lista de URLs que o ZAP viu (spider + proxy). Chamada leve: devolve so
+        as strings, nao as mensagens inteiras — rapida mesmo com o site grande."""
+        return list(self._zap_api().core.urls(baseurl=site or ""))
+
+    def messages_paged(self, site: str, page: int = 200) -> list[dict]:
+        """Mensagens de UM site, em lotes. Buscar tudo de uma vez estoura o proxy
+        quando o site tem muitas mensagens (ex.: depois do Spider) — a resposta
+        gigante derruba a conexao. Em lotes pequenos a leitura e sempre leve."""
+        core = self._zap_api().core
+        out: list[dict] = []
+        start = 0
+        while True:
+            batch = list(core.messages(baseurl=site, start=str(start), count=str(page)))
+            if not batch:
+                break
+            out.extend(batch)
+            if len(batch) < page:
+                break
+            start += page
+        return out
+
     def messages(self, site: str | None = None) -> list[dict]:
-        """Todas as requisicoes que passaram pelo ZAP (opcionalmente de um site)."""
-        return list(self._zap_api().core.messages(baseurl=site or ""))
+        """Requisicoes que passaram pelo ZAP de um site (paginado).
+
+        Sem site, consulta cada site separadamente e junta: o ZAP falha/estoura
+        ao pedir TODAS as mensagens de uma vez (baseurl vazio), entao agregamos
+        por site. Um site problematico nao derruba o resto.
+        """
+        if site:
+            return self.messages_paged(site)
+        out: list[dict] = []
+        for s in self.sites():
+            try:
+                out.extend(self.messages_paged(s))
+            except Exception:  # noqa: BLE001
+                continue
+        return out

@@ -65,6 +65,24 @@ claude mcp add zap \
 (`zap-mcp` e o script instalado pelo `pip install -e .`; precisa estar no PATH
 do ambiente onde o Claude abre o servidor — por isso o venv.)
 
+## Painel web (React)
+
+Front em `web/` (Vite + React) sobre uma API HTTP fina (`src/zap_mcp/web.py`,
+Starlette) que reaproveita as mesmas funcoes e protecoes do servidor MCP:
+allowlist editavel, confirmacao do scan ativo, botao Parar, log ao vivo,
+alertas com detalhe, endpoints capturados e relatorios.
+
+```bash
+pip install -e ".[web]"
+playwright install chromium
+cd web && npm install && npm run build && cd ..
+python -m zap_mcp.web        # http://127.0.0.1:8765
+```
+
+Para mexer no front com hot reload: deixe `python -m zap_mcp.web` rodando e,
+em outro terminal, `cd web && npm run dev` (http://localhost:5173, que
+repassa `/api` para a porta 8765). A API escuta so em 127.0.0.1.
+
 ## Testar contra o OWASP Juice Shop
 
 ```bash
