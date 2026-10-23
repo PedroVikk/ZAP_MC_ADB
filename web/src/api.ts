@@ -189,6 +189,38 @@ export interface NucleiStartParams {
   max_seconds: number;
 }
 
+export interface MobileDevice {
+  serial: string;
+  state: string;
+  model: string;
+}
+
+export interface MobileStatus {
+  available: boolean;
+  version?: string;
+  devices?: MobileDevice[];
+  error?: string;
+  detail?: string;
+}
+
+export interface MobileGuidance {
+  titulo: string;
+  porque: string;
+  passos: string[];
+  ferramentas_externas: string[];
+}
+
+export interface MobileResult {
+  serial?: string;
+  pushed_to?: string;
+  system_store_name?: string | null;
+  passos?: string[];
+  http_proxy?: string;
+  nota?: string;
+  error?: string;
+  detail?: string;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -216,6 +248,11 @@ export const api = {
   alert: (id: string) => call<AlertDetail>(`/api/alerts/${encodeURIComponent(id)}`),
   urls: () => call<Urls>("/api/urls"),
   reports: () => call<ReportFile[]>("/api/reports"),
+  mobileStatus: () => call<MobileStatus>("/api/mobile/status"),
+  mobileGuidance: () => call<MobileGuidance>("/api/mobile/guidance"),
+  mobileInstallCa: (serial: string) => call<MobileResult>("/api/mobile/ca", json("POST", { serial })),
+  mobileProxy: (p: { enable: boolean; host: string; port: number; serial: string }) =>
+    call<MobileResult>("/api/mobile/proxy", json("POST", p)),
   nucleiStatus: () => call<{ available: boolean; version?: string; detail?: string }>("/api/nuclei/status"),
   nucleiRun: () => call<NucleiRun | null>("/api/nuclei"),
   nucleiStart: (p: NucleiStartParams) => call<NucleiRun>("/api/nuclei", json("POST", p)),

@@ -1198,9 +1198,22 @@ li.open .chev {
 }
 
 .prose p {
-  margin: 0;
+  margin: 0 0 6px;
   color: #c7cfdc;
   white-space: pre-wrap;
+}
+
+.prose ol,
+.steps {
+  margin: 8px 0;
+  padding-left: 20px;
+  color: #c7cfdc;
+}
+
+.steps li,
+.prose ol li {
+  margin: 4px 0;
+  line-height: 1.5;
 }
 
 .raw {

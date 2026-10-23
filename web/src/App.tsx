@@ -9,19 +9,22 @@ import {
   RefreshCw,
   Shield,
   ShieldCheck,
+  Smartphone,
 } from "lucide-react";
 import { api, type Job, type Status } from "./api";
 import { Allowlist, RunForm } from "./Setup";
 import { ODataView } from "./OData";
 import { NucleiView } from "./Nuclei";
+import { MobileView } from "./Mobile";
 import { AlertsView, EndpointsView, ReportsView, RunView } from "./Views";
 
-type Tab = "run" | "odata" | "nuclei" | "alerts" | "endpoints" | "reports";
+type Tab = "run" | "odata" | "nuclei" | "mobile" | "alerts" | "endpoints" | "reports";
 
 const TABS: { id: Tab; label: string; icon: JSX.Element }[] = [
   { id: "run", label: "Execução", icon: <Play size={15} /> },
   { id: "odata", label: "OData", icon: <Database size={15} /> },
   { id: "nuclei", label: "Nuclei", icon: <Radiation size={15} /> },
+  { id: "mobile", label: "Mobile", icon: <Smartphone size={15} /> },
   { id: "alerts", label: "Alertas", icon: <ShieldCheck size={15} /> },
   { id: "endpoints", label: "Endpoints", icon: <Activity size={15} /> },
   { id: "reports", label: "Relatórios", icon: <FileText size={15} /> },
@@ -161,6 +164,7 @@ export default function App() {
           {tab === "run" && <RunView job={job} />}
           {tab === "odata" && <ODataView />}
           {tab === "nuclei" && <NucleiView allowlist={status?.allowed_targets ?? []} />}
+          {tab === "mobile" && <MobileView />}
           {tab === "alerts" && <AlertsView refreshKey={refreshKey} />}
           {tab === "endpoints" && <EndpointsView refreshKey={refreshKey} />}
           {tab === "reports" && <ReportsView refreshKey={refreshKey} />}

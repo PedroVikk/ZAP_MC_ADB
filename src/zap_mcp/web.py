@@ -343,6 +343,31 @@ async def nuclei_stop(_: Request):
     return JSONResponse(_nuclei.snapshot())
 
 
+async def mobile_status(_: Request):
+    return JSONResponse(await asyncio.to_thread(S.mobile_status))
+
+
+async def mobile_guidance(_: Request):
+    return JSONResponse(await asyncio.to_thread(S.mobile_guidance))
+
+
+async def mobile_ca(request: Request):
+    body = await request.json()
+    return JSONResponse(await asyncio.to_thread(S.mobile_install_ca, body.get("serial", "")))
+
+
+async def mobile_proxy(request: Request):
+    body = await request.json()
+    if body.get("enable"):
+        data = await asyncio.to_thread(
+            S.mobile_set_proxy, body.get("host", ""), int(body.get("port", 8080)),
+            body.get("serial", ""),
+        )
+    else:
+        data = await asyncio.to_thread(S.mobile_clear_proxy, body.get("serial", ""))
+    return JSONResponse(data)
+
+
 async def report_file(request: Request):
     name = os.path.basename(request.path_params["name"])  # sem ../
     folder = Path(S._config.report_dir)
@@ -369,6 +394,10 @@ routes = [
     Route("/api/nuclei", nuclei_get),
     Route("/api/nuclei", nuclei_start, methods=["POST"]),
     Route("/api/nuclei/stop", nuclei_stop, methods=["POST"]),
+    Route("/api/mobile/status", mobile_status),
+    Route("/api/mobile/guidance", mobile_guidance),
+    Route("/api/mobile/ca", mobile_ca, methods=["POST"]),
+    Route("/api/mobile/proxy", mobile_proxy, methods=["POST"]),
     Route("/api/reports", reports_list),
     Route("/api/reports", reports_create, methods=["POST"]),
     Route("/api/reports/{name}", report_file),

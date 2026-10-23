@@ -34,6 +34,24 @@ API REST do ZAP.
 | `import_openapi(url, target)` | Importa uma spec OpenAPI para testar APIs |
 | `generate_report(format)` | Relatorio em html, json ou md (grava em `reports/`) |
 
+## SAPUI5, OData, Nuclei e mobile
+
+Alem do fluxo classico do ZAP, o projeto cobre o que trava num app SAPUI5:
+
+- **OData (`odata_discover`, `odata_probe`, aba OData):** le o `$metadata` do
+  servico, descobre os EntitySets e monta as requisicoes (GET de colecao, por
+  chave, `$filter/$select/$expand` e, opcional, POST/PATCH/DELETE) mandando tudo
+  pelo proxy do ZAP. Testa a API direto, sem depender do spider. Escrita busca o
+  CSRF token (`X-CSRF-Token: Fetch`) e exige confirmacao.
+- **Nuclei (`nuclei_scan`, `nuclei_status`, aba Nuclei):** roda o Nuclei contra
+  os alvos autorizados para CVEs, configuracoes erradas e templates de SAP, com
+  pouquissimo falso positivo. Precisa do binario (`NUCLEI_PATH`).
+- **Mobile/Flutter (`mobile_*`, aba Mobile):** prepara um aparelho via ADB —
+  lista aparelhos, instala a CA do ZAP, seta o proxy e (com root) redireciona o
+  trafego (iptables). O Flutter ignora o proxy e so confia na CA do sistema, por
+  isso a aba traz o passo a passo (system store + redirect transparente +
+  reFlutter/Frida). Precisa do `adb` (`ADB_PATH`). Experimental.
+
 ## Quickstart
 
 ### 1. Subir o ZAP

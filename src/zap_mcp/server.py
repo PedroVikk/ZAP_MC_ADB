@@ -14,6 +14,8 @@ from mcp.server.mcpserver import MCPServer
 
 from .client import ZapClient, ZapUnavailable
 from .config import Config
+from . import mobile as _mobile
+from .mobile import MobileError
 from .nuclei import NucleiUnavailable, check as nuclei_check, run_blocking as nuclei_run
 from .odata import ODataError, run_plan
 from .reports import (
@@ -56,6 +58,8 @@ def guarded(fn: Callable) -> Callable:
             return {"error": "odata", "detail": str(exc)}
         except NucleiUnavailable as exc:
             return {"error": "nuclei_indisponivel", "detail": str(exc)}
+        except MobileError as exc:
+            return {"error": "mobile", "detail": str(exc)}
         except Exception as exc:  # noqa: BLE001 - fronteira do servidor
             return {"error": "falha", "detail": f"{type(exc).__name__}: {exc}"}
 
@@ -345,6 +349,74 @@ def nuclei_scan(
     proxy = _config.base_url if through_zap else ""
     return nuclei_run(_config.nuclei_path, [target], severity=severity, tags=tags,
                       templates=templates, proxy=proxy, cap_seconds=float(max_seconds))
+
+
+def _zap_host() -> str:
+    """Host do ZAP a partir do base_url (para o proxy/redirect do aparelho)."""
+    from urllib.parse import urlparse
+    return urlparse(_config.base_url).hostname or "127.0.0.1"
+
+
+@mcp.tool()
+@guarded
+def mobile_status() -> dict:
+    """Diz se o ADB esta disponivel, a versao e os aparelhos conectados."""
+    return _mobile.status(_config.adb_path)
+
+
+@mcp.tool()
+@guarded
+def mobile_guidance() -> dict:
+    """Passo a passo para testar um app Flutter com o ZAP (nao roda nada)."""
+    return _mobile.guidance()
+
+
+@mcp.tool()
+@guarded
+def mobile_install_ca(serial: str = "") -> dict:
+    """Envia a CA raiz do ZAP para o aparelho e devolve como instala-la.
+
+    O Flutter so confia na CA do armazenamento do SISTEMA (root/emulador).
+    """
+    ca = _client.root_ca_pem()
+    return _mobile.install_ca(_config.adb_path, ca, serial)
+
+
+@mcp.tool()
+@guarded
+def mobile_set_proxy(host: str = "", port: int = 8080, serial: str = "") -> dict:
+    """Aponta o proxy HTTP global do Android para o ZAP (host:porta).
+
+    host vazio usa o host do ZAP_BASE_URL — num aparelho de verdade troque pelo
+    IP da sua maquina na rede. Vale para WebViews/apps nativos; o Flutter ignora.
+    """
+    return _mobile.set_proxy(_config.adb_path, host or _zap_host(), port, serial)
+
+
+@mcp.tool()
+@guarded
+def mobile_clear_proxy(serial: str = "") -> dict:
+    """Remove o proxy HTTP global do Android."""
+    return _mobile.clear_proxy(_config.adb_path, serial)
+
+
+@mcp.tool()
+@guarded
+def mobile_transparent(zap_host: str = "", zap_port: int = 8080, serial: str = "",
+                       confirm: bool = False) -> dict:
+    """Redireciona (iptables, via su) o trafego do aparelho para o ZAP transparente.
+
+    E o que faz o trafego de um app Flutter chegar no ZAP (ele ignora o proxy).
+    PRECISA de root e MEXE na rede do aparelho, entao exige confirm=True.
+    """
+    if not confirm:
+        return {
+            "status": "confirmacao_necessaria",
+            "message": ("Isto altera o iptables do aparelho (precisa de root). "
+                        "Rechame com confirm=True."),
+        }
+    return _mobile.transparent_redirect(_config.adb_path, zap_host or _zap_host(),
+                                        zap_port, serial)
 
 
 @mcp.tool()
