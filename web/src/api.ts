@@ -190,6 +190,18 @@ export interface NucleiStartParams {
   max_seconds: number;
 }
 
+export interface SessionStatus {
+  sessao_ativa: boolean;
+  cookie_names: string[];
+  login_status: string;
+  capturada_ha_s: number | null;
+  ok?: boolean;
+  company_status?: string;
+  cookies_capturados?: number;
+  error?: string;
+  detail?: string;
+}
+
 export interface MobileDevice {
   serial: string;
   state: string;
@@ -249,6 +261,10 @@ export const api = {
   alert: (id: string) => call<AlertDetail>(`/api/alerts/${encodeURIComponent(id)}`),
   urls: () => call<Urls>("/api/urls"),
   reports: () => call<ReportFile[]>("/api/reports"),
+  session: () => call<SessionStatus>("/api/session"),
+  sessionLogin: (p: { login_url: string; username: string; password: string; company: string }) =>
+    call<SessionStatus>("/api/session/login", json("POST", p)),
+  sessionClear: () => call<SessionStatus>("/api/session/clear", { method: "POST" }),
   mobileStatus: () => call<MobileStatus>("/api/mobile/status"),
   mobileGuidance: () => call<MobileGuidance>("/api/mobile/guidance"),
   mobileInstallCa: (serial: string) => call<MobileResult>("/api/mobile/ca", json("POST", { serial })),

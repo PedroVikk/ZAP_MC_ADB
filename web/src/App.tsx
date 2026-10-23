@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { api, type Job, type Status } from "./api";
 import { Allowlist, RunForm } from "./Setup";
+import { SessionCard } from "./Session";
 import { ODataView } from "./OData";
 import { NucleiView } from "./Nuclei";
 import { MobileView } from "./Mobile";
@@ -116,6 +117,9 @@ export default function App() {
           <Allowlist
             hosts={status?.allowed_targets ?? []}
             onChange={(hosts) => setStatus((s) => (s ? { ...s, allowed_targets: hosts } : s))}
+          />
+          <SessionCard
+            defaultUrl={status?.allowed_targets?.[0] ? `https://${status.allowed_targets[0]}` : ""}
           />
           <RunForm
             status={status}

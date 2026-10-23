@@ -630,6 +630,40 @@ input[type="range"] {
   color: var(--muted);
 }
 
+.session-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  margin: 2px 0 6px;
+}
+
+.session-status .dot {
+  color: var(--good);
+}
+
+.session-status .dot.off {
+  color: var(--dim);
+  box-shadow: none;
+}
+
+.session-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.session-form .field {
+  margin-bottom: 0;
+}
+
+.small {
+  font-size: 12px;
+}
+
 .banner {
   display: flex;
   align-items: center;

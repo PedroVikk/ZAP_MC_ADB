@@ -14,7 +14,11 @@ from mcp.server.mcpserver import MCPServer
 
 from .client import ZapClient, ZapUnavailable
 from .config import Config
+import asyncio
+import time
+
 from . import mobile as _mobile
+from . import websession as _websession
 from .mobile import MobileError
 from .nuclei import NucleiUnavailable, check as nuclei_check, run_blocking as nuclei_run
 from .odata import ODataError, run_plan
@@ -41,6 +45,10 @@ _config = Config.from_env()
 _allowlist = normalize_allowlist(_config.allowed_targets)
 _client = ZapClient(_config)
 _registry = ScanRegistry()
+
+# Sessao autenticada capturada uma vez (login) e reaproveitada por OData e Nuclei,
+# para nao precisar colar cookie na mao. So o header fica guardado (em memoria).
+_session = {"cookie_header": "", "names": [], "login_status": "", "at": None}
 
 
 def guarded(fn: Callable) -> Callable:
@@ -271,6 +279,57 @@ def import_openapi(url: str, target: str | None = None) -> dict:
 
 @mcp.tool()
 @guarded
+def session_login(login_url: str, username: str, password: str,
+                  company: str = "", headless: bool = True) -> dict:
+    """Loga uma vez (Playwright, reusando o login do explorador) e guarda a sessao.
+
+    Depois disto o OData e o Nuclei mandam os cookies da sessao sozinhos — sem
+    colar cookie na mao. Passa a tela de empresa (se houver). O host precisa estar
+    autorizado. So guarda os cookies em memoria; nada e gravado em disco.
+    """
+    ensure_allowed(login_url, _allowlist)
+    res = asyncio.run(_websession.capture(
+        login_url, _config.base_url, username, password, company, headless))
+    if res.get("cookie_header"):
+        _session.update({
+            "cookie_header": res["cookie_header"],
+            "names": res["cookie_names"],
+            "login_status": res["login_status"],
+            "at": time.time(),
+        })
+    # nao devolve o cookie_header (segredo): so o resumo
+    return {
+        "ok": res["ok"],
+        "login_status": res["login_status"],
+        "company_status": res["company_status"],
+        "cookies_capturados": res["cookie_count"],
+        "cookie_names": res["cookie_names"],
+        "sessao_ativa": bool(_session["cookie_header"]),
+    }
+
+
+@mcp.tool()
+@guarded
+def session_status() -> dict:
+    """Diz se ha uma sessao capturada (sem expor o cookie)."""
+    return {
+        "sessao_ativa": bool(_session["cookie_header"]),
+        "cookie_names": _session["names"],
+        "login_status": _session["login_status"],
+        "capturada_ha_s": int(time.time() - _session["at"]) if _session["at"] else None,
+    }
+
+
+@mcp.tool()
+@guarded
+def session_clear() -> dict:
+    """Esquece a sessao capturada."""
+    _session.update({"cookie_header": "", "names": [], "login_status": "", "at": None})
+    return {"sessao_ativa": False}
+
+
+@mcp.tool()
+@guarded
 def odata_discover(metadata_url: str, target: str | None = None) -> dict:
     """Le o $metadata de um servico OData e lista os EntitySets e as requisicoes
     que daria para testar — SEM enviar nada ao alvo.
@@ -281,7 +340,10 @@ def odata_discover(metadata_url: str, target: str | None = None) -> dict:
     $metadata para planejar.
     """
     ensure_allowed(target or metadata_url, _allowlist)
-    return run_plan(metadata_url, _config.base_url, send=False)
+    # descobrir so le o contrato: busca direto (sem ZAP no caminho) e reusa a
+    # sessao capturada, se houver — assim funciona mesmo sem o ZAP alcancar o alvo.
+    return run_plan(metadata_url, _config.base_url, send=False, use_proxy=False,
+                    cookie=_session["cookie_header"])
 
 
 @mcp.tool()
@@ -304,6 +366,7 @@ def odata_probe(
     autorizado. Depois disto, rode um active_scan no host para fuzzar os params.
     """
     ensure_allowed(target or metadata_url, _allowlist)
+    cookie = _session["cookie_header"]  # reusa a sessao do login, se houver
     if include_writes and not confirm:
         return {
             "status": "confirmacao_necessaria",
@@ -315,7 +378,8 @@ def odata_probe(
             ),
         }
     return run_plan(metadata_url, _config.base_url, username=username,
-                    password=password, include_writes=include_writes, send=True)
+                    password=password, include_writes=include_writes, send=True,
+                    cookie=cookie)
 
 
 @mcp.tool()
@@ -351,8 +415,13 @@ def nuclei_scan(
     """
     ensure_allowed(target, _allowlist)
     proxy = _config.base_url if through_zap else ""
+    # junta a sessao capturada (login) aos cabecalhos, se houver — sem colar cookie
+    all_headers = list(headers or [])
+    if _session["cookie_header"] and not any(
+            h.lower().startswith("cookie:") for h in all_headers):
+        all_headers.append(f"Cookie: {_session['cookie_header']}")
     return nuclei_run(_config.nuclei_path, [target], severity=severity, tags=tags,
-                      templates=templates, proxy=proxy, headers=headers,
+                      templates=templates, proxy=proxy, headers=all_headers,
                       cap_seconds=float(max_seconds))
 
 

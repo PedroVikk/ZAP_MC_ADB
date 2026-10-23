@@ -344,6 +344,26 @@ async def nuclei_stop(_: Request):
     return JSONResponse(_nuclei.snapshot())
 
 
+async def session_get(_: Request):
+    return JSONResponse(await asyncio.to_thread(S.session_status))
+
+
+async def session_login(request: Request):
+    body = await request.json()
+    url = (body.get("login_url") or "").strip()
+    if not url:
+        return _err(400, "Informe a URL de login.")
+    data = await asyncio.to_thread(
+        S.session_login, url, body.get("username", ""), body.get("password", ""),
+        body.get("company", ""), bool(body.get("headless", True)),
+    )
+    return JSONResponse(data)
+
+
+async def session_clear(_: Request):
+    return JSONResponse(await asyncio.to_thread(S.session_clear))
+
+
 async def mobile_status(_: Request):
     return JSONResponse(await asyncio.to_thread(S.mobile_status))
 
@@ -395,6 +415,9 @@ routes = [
     Route("/api/nuclei", nuclei_get),
     Route("/api/nuclei", nuclei_start, methods=["POST"]),
     Route("/api/nuclei/stop", nuclei_stop, methods=["POST"]),
+    Route("/api/session", session_get),
+    Route("/api/session/login", session_login, methods=["POST"]),
+    Route("/api/session/clear", session_clear, methods=["POST"]),
     Route("/api/mobile/status", mobile_status),
     Route("/api/mobile/guidance", mobile_guidance),
     Route("/api/mobile/ca", mobile_ca, methods=["POST"]),

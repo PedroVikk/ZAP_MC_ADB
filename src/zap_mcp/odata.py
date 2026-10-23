@@ -220,12 +220,16 @@ def run_plan(
     include_writes: bool = False,
     send: bool = True,
     timeout: float = 15.0,
+    cookie: str = "",
+    use_proxy: bool = True,
 ) -> dict:
     """Busca o $metadata, monta as requisicoes e (se send) as manda pelo ZAP.
 
-    Tudo passa pelo proxy do ZAP (proxies=zap_proxy) para o ZAP registrar e poder
-    escanear depois. Em escrita, busca o CSRF token antes. Devolve um resumo
-    enxuto (sem corpos de resposta) — contagem por EntitySet e status de cada req.
+    Com send=True tudo passa pelo proxy do ZAP, para o ZAP registrar e escanear.
+    use_proxy=False busca direto (sem ZAP) — usado no 'descobrir', que so le o
+    contrato e nao precisa do ZAP no caminho. cookie: sessao ja autenticada
+    (Cookie header) reaproveitada, para nao colar nada na mao. Em escrita, busca
+    o CSRF token antes. Resumo enxuto (sem corpos de resposta).
     """
     import requests
     import urllib3
@@ -235,17 +239,30 @@ def run_plan(
     root = service_root(metadata_url)
     session = requests.Session()
     session.verify = False
-    session.proxies = {"http": zap_proxy, "https": zap_proxy}
-    if username:
+    if use_proxy:
+        session.proxies = {"http": zap_proxy, "https": zap_proxy}
+    if cookie:
+        session.headers["Cookie"] = cookie
+    elif username:
         session.auth = (username, password)
 
-    # 1) $metadata (tambem passa pelo ZAP)
+    # 1) $metadata
     try:
         resp = session.get(metadata_url, headers={"Accept": "application/xml"}, timeout=timeout)
     except Exception as exc:  # noqa: BLE001
-        raise ODataError(f"nao consegui buscar o $metadata via ZAP: {exc}") from exc
+        via = "via ZAP" if use_proxy else "direto"
+        raise ODataError(f"nao consegui buscar o $metadata ({via}): {exc}") from exc
+    if resp.status_code in (502, 503, 504):
+        via = "o ZAP nao alcancou o alvo" if use_proxy else "o alvo nao respondeu"
+        raise ODataError(
+            f"$metadata deu HTTP {resp.status_code}: {via}. O app esta no ar e a "
+            f"URL/host sao alcancaveis a partir daqui?")
+    if resp.status_code in (401, 403):
+        raise ODataError(
+            f"$metadata deu HTTP {resp.status_code}: sem autorizacao. Capture a "
+            f"sessao (botao Entrar) ou informe usuario/senha.")
     if resp.status_code >= 400:
-        raise ODataError(f"$metadata respondeu HTTP {resp.status_code} (login? URL?)")
+        raise ODataError(f"$metadata respondeu HTTP {resp.status_code} (URL certa?)")
     model = parse_metadata(resp.text)
     requests_plan = build_requests(model, root, include_writes)
 
