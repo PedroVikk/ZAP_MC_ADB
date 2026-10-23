@@ -41,7 +41,23 @@ def check(path: str) -> str:
     return out.strip()[:80] or "desconhecida"
 
 
-def _build_cmd(path, targets, severity, tags, templates, proxy, rate_limit):
+def clean_headers(headers) -> list[str]:
+    """Normaliza os cabecalhos: tira linhas vazias e espaco, exige 'Nome: valor'.
+
+    Aceita lista de strings ou um texto com uma linha por cabecalho (como se
+    copia do devtools). Uma linha sem ':' e ignorada (nao vira -H quebrado).
+    """
+    if isinstance(headers, str):
+        headers = headers.splitlines()
+    out = []
+    for h in headers or []:
+        h = str(h).strip()
+        if h and ":" in h:
+            out.append(h)
+    return out
+
+
+def _build_cmd(path, targets, severity, tags, templates, proxy, rate_limit, headers=None):
     cmd = [path, "-jsonl", "-silent", "-no-color", "-disable-update-check",
            "-rate-limit", str(rate_limit)]
     for t in targets:
@@ -54,6 +70,8 @@ def _build_cmd(path, targets, severity, tags, templates, proxy, rate_limit):
         cmd += ["-t", templates]
     if proxy:
         cmd += ["-proxy", proxy]
+    for h in clean_headers(headers):
+        cmd += ["-H", h]  # sessao/auth: Cookie, x-csrf-token, Authorization...
     return cmd
 
 
@@ -103,8 +121,10 @@ class NucleiRun:
         self.finished_at: float | None = None
         self.error: str | None = None
 
-    def start(self, path, severity, tags, templates, proxy, rate_limit, cap_seconds) -> None:
-        cmd = _build_cmd(path, self.targets, severity, tags, templates, proxy, rate_limit)
+    def start(self, path, severity, tags, templates, proxy, rate_limit, cap_seconds,
+              headers=None) -> None:
+        cmd = _build_cmd(path, self.targets, severity, tags, templates, proxy,
+                         rate_limit, headers)
         try:
             self.proc = subprocess.Popen(  # noqa: S603 - path do .env, args controlados
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -164,10 +184,11 @@ def run_blocking(
     proxy: str = "",
     rate_limit: int = 150,
     cap_seconds: float = 300.0,
+    headers=None,
 ) -> dict:
     """Roda o Nuclei ate o fim (ou o cap) e devolve o resumo. Para o MCP."""
     check(path)  # erro claro antes de comecar
-    cmd = _build_cmd(path, targets, severity, tags, templates, proxy, rate_limit)
+    cmd = _build_cmd(path, targets, severity, tags, templates, proxy, rate_limit, headers)
     try:
         proc = subprocess.run(  # noqa: S603 - path do .env, args controlados
             cmd, capture_output=True, text=True, timeout=cap_seconds,

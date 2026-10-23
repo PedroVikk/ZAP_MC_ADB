@@ -20,6 +20,7 @@ export function NucleiView({ allowlist }: { allowlist: string[] }) {
   const [target, setTarget] = useState("");
   const [severity, setSeverity] = useState<Record<string, boolean>>({ critical: true, high: true, medium: true, low: false, info: false });
   const [tags, setTags] = useState("");
+  const [session, setSession] = useState("");
   const [throughZap, setThroughZap] = useState(false);
   const [run, setRun] = useState<NucleiRun | null>(null);
   const [err, setErr] = useState("");
@@ -47,12 +48,17 @@ export function NucleiView({ allowlist }: { allowlist: string[] }) {
     setErr("");
     try {
       const sev = SEV.filter((s) => severity[s]).join(",");
+      const headers = session
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.includes(":"));
       setRun(await api.nucleiStart({
         targets: [target.trim()],
         severity: sev,
         tags,
         templates: "",
         through_zap: throughZap,
+        headers,
         max_seconds: 300,
       }));
     } catch (e) {
@@ -108,6 +114,21 @@ export function NucleiView({ allowlist }: { allowlist: string[] }) {
         <label className="field">
           <span>Tags (opcional)</span>
           <input className="input" placeholder="ex.: sap,cve,misconfiguration" value={tags} onChange={(e) => setTags(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Sessão / cabeçalhos — para testar atrás do login (opcional)</span>
+          <textarea
+            className="input mono"
+            rows={3}
+            spellCheck={false}
+            placeholder={"Cookie: SAP_SESSIONID_XYZ=...\nx-csrf-token: ...\nAuthorization: Bearer ..."}
+            value={session}
+            onChange={(e) => setSession(e.target.value)}
+          />
+          <small className="muted">
+            Um cabeçalho por linha (copie de uma sessão já logada no devtools). Cada linha vira um{" "}
+            <code>-H</code> do Nuclei.
+          </small>
         </label>
         <Toggle
           checked={throughZap}

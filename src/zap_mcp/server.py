@@ -334,6 +334,7 @@ def nuclei_scan(
     tags: str = "",
     templates: str = "",
     through_zap: bool = False,
+    headers: list[str] | None = None,
     max_seconds: int = 300,
 ) -> dict:
     """Roda o Nuclei contra o alvo e devolve os achados agrupados por severidade.
@@ -342,13 +343,17 @@ def nuclei_scan(
     SAP) e pouquissimo falso positivo. Bloqueante ate o fim ou max_seconds.
     severity: critical,high,medium,low,info (lista separada por virgula).
     tags: ex. 'sap,cve'. templates: caminho/-t especifico. through_zap=True manda
-    pelo proxy do ZAP para os achados tambem ficarem registrados la. O host
-    precisa estar autorizado.
+    pelo proxy do ZAP para os achados tambem ficarem registrados la.
+    headers: cabecalhos de sessao/autenticacao para testar atras do login — uma
+    string 'Nome: valor' por item (ex.: 'Cookie: SAP_SESSIONID_...=...',
+    'x-csrf-token: ...', 'Authorization: Bearer ...'). O host precisa estar
+    autorizado.
     """
     ensure_allowed(target, _allowlist)
     proxy = _config.base_url if through_zap else ""
     return nuclei_run(_config.nuclei_path, [target], severity=severity, tags=tags,
-                      templates=templates, proxy=proxy, cap_seconds=float(max_seconds))
+                      templates=templates, proxy=proxy, headers=headers,
+                      cap_seconds=float(max_seconds))
 
 
 def _zap_host() -> str:

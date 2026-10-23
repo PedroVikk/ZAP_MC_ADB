@@ -328,7 +328,8 @@ async def nuclei_start(request: Request):
     proxy = S._config.base_url if body.get("through_zap") else ""
     cap = min(int(body.get("max_seconds", 300)), S._config.max_scan_seconds)
     run.start(S._config.nuclei_path, body.get("severity", ""), body.get("tags", ""),
-              body.get("templates", ""), proxy, int(body.get("rate_limit", 150)), cap)
+              body.get("templates", ""), proxy, int(body.get("rate_limit", 150)), cap,
+              headers=body.get("headers", []))
     return JSONResponse(run.snapshot())
 
 

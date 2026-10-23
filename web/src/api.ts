@@ -186,6 +186,7 @@ export interface NucleiStartParams {
   tags: string;
   templates: string;
   through_zap: boolean;
+  headers: string[];
   max_seconds: number;
 }
 
